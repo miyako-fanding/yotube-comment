@@ -36,7 +36,7 @@
     <div class="w-full max-w-2xl mx-auto bg-white rounded-2xl shadow-lg p-8 md:p-10">
         <div class="text-center mb-8">
             <h1 class="text-3xl font-bold text-gray-800">YouTube 댓글 추출기</h1>
-            <p class="text-gray-500 mt-2">채널의 최신 영상 15개에서 모든 댓글을 추출하여 엑셀(CSV) 파일로 저장합니다.</p>
+            <p class="text-gray-500 mt-2">채널의 최신 영상(Shorts 제외) 15개에서 모든 댓글을 추출하여 엑셀(CSV) 파일로 저장합니다.</p>
         </div>
 
         <!-- 입력 폼 -->
@@ -59,7 +59,7 @@
         <!-- 프롬프트 복사 섹션 -->
         <div class="mt-4 p-4 bg-gray-50 rounded-lg text-center border border-gray-200">
             <div class="flex items-center justify-center">
-                 <a href="https://gemini.google.com" target="_blank" class="text-sm text-blue-600 hover:underline font-medium">gemini</a>&nbsp;붙여넣을 분석 프롬프트 복사하기
+                 <a href="https://gemini.google.com" target="_blank" class="text-sm text-blue-600 hover:underline font-medium">gemini</a>에 붙여넣을 분석 프롬프트 복사하기
                  <button id="copyPromptButton" class="ml-4 bg-gray-200 text-gray-800 text-xs font-bold py-1 px-3 rounded-md hover:bg-gray-300 transition-all">복사</button>
             </div>
         </div>
@@ -181,6 +181,10 @@
 
                 updateStatus('3/5: 최신 동영상 15개 찾는 중...');
                 const videoIds = await getVideoIds(API_KEY, uploadsPlaylistId);
+                
+                if (videoIds.length === 0) {
+                    throw new Error('분석할 일반 영상이 없습니다. (Shorts 제외)');
+                }
 
                 for (let i = 0; i < videoIds.length; i++) {
                     updateStatus(`4/5: 댓글 수집 중... (영상 ${i + 1}/${videoIds.length})`);
@@ -266,11 +270,26 @@
             return data.items[0].contentDetails.relatedPlaylists.uploads;
         }
 
+        // *** Shorts 영상을 제외하도록 수정된 함수 ***
         async function getVideoIds(apiKey, playlistId) {
-            const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${playlistId}&maxResults=15&key=${apiKey}`;
+            // 필터링을 위해 충분한 수의 영상을 가져옵니다 (최대 50개).
+            const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${playlistId}&maxResults=50&key=${apiKey}`;
             const response = await fetch(url);
             const data = await response.json();
-            return data.items.map(item => ({
+
+            if (!data.items) {
+                return []; // 아이템이 없으면 빈 배열 반환
+            }
+
+            // 제목에 '#shorts'가 포함되지 않은 영상만 필터링합니다.
+            const nonShortsVideos = data.items.filter(item => 
+                !item.snippet.title.toLowerCase().includes('#shorts')
+            );
+
+            // 필터링된 영상 중에서 최신 15개를 선택합니다.
+            const latestVideos = nonShortsVideos.slice(0, 15);
+
+            return latestVideos.map(item => ({
                 id: item.snippet.resourceId.videoId,
                 title: item.snippet.title
             }));
@@ -282,7 +301,6 @@
             const baseUrl = `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet,replies&videoId=${videoId}&key=${apiKey}&maxResults=100`;
 
             do {
-                // *** 여기가 수정된 부분입니다 ***
                 const url = nextPageToken ? `${baseUrl}&pageToken=${nextPageToken}` : baseUrl;
                 const response = await fetch(url);
                 const data = await response.json();
@@ -366,4 +384,3 @@
     </script>
 </body>
 </html>
-
